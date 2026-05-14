@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   Tailwind v4 theme tokens — generates utility classes AND
+   CSS custom properties automatically.
+   ─────────────────────────────────────────────────────────── */
+@theme {
+  /* Brand */
+  --color-brand-50:  #fff5f4;
+  --color-brand-100: #ffe4e2;
+  --color-brand-400: #f87171;
+  --color-brand-500: #ef4444;
+  --color-brand-600: #dc2626;
+  --color-brand-700: #b91c1c;
+
+  /* Surface */
+  --color-surface:        #ffffff;
+  --color-surface-muted:  #fdf4f3;
+  --color-surface-subtle: #fde8e6;
+
+  /* Fonts */
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Breakpoints */
+  --breakpoint-xs:  375px;
+  --breakpoint-3xl: 1920px;
+
+  /* Animations */
+  --animate-slide-in-right: slideInRight 0.2s ease-out;
+  --animate-slide-in-up:    slideInUp 0.2s ease-out;
+  --animate-fade-in:        fadeIn 0.15s ease-out;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideInUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CSS Custom Properties (layout, semantic colors, shadows)
+   These are used directly via var() in component styles.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  --sidebar-width:     72px;
+  --header-height:     64px;
+  --content-padding:   1.5rem;
+  --sidebar-padding-x: 0.75rem;
+  --nav-item-gap:      0.5rem;
+
+  --color-sidebar-bg:          #ffffff;
+  --color-sidebar-text:        #1f2937;
+  --color-sidebar-text-muted:  #9ca3af;
+  --color-sidebar-border:      #f3f4f6;
+  --color-sidebar-item-hover:  #fff5f4;
+  --color-sidebar-item-active: #fff0ef;
+  --color-sidebar-icon-active: #ef4444;
+
+  --color-text-primary:   #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-muted:     #9ca3af;
+
+  --color-border:   #f3f4f6;
+  --color-danger:   #dc2626;
+  --color-warning:  #d97706;
+  --color-success:  #16a34a;
+
+  --spacing-card:    1.25rem;
+  --spacing-section: 1.5rem;
+
+  --shadow-card:  0 1px 4px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-panel: 0 4px 16px -4px rgb(0 0 0 / 0.10);
+  --shadow-modal: 0 20px 40px -8px rgb(0 0 0 / 0.18);
+
+  --transition-fast:   100ms ease-out;
+  --transition-normal: 150ms ease-out;
+  --transition-slow:   200ms ease-out;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Base
+   ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  min-height: 100svh;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-primary);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* Thin scrollbars */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+
+/* ─────────────────────────────────────────────────────────────
+   Component classes
+   ─────────────────────────────────────────────────────────── */
+@layer components {
+  /* Base btn styles shared via CSS — can't @apply custom classes in v4 */
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           px-4 py-2.5 text-sm font-medium transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary   { @apply bg-brand-600 text-white hover:bg-brand-700 focus:ring-brand-500 shadow-sm hover:shadow; }
+  .btn-secondary { @apply bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 focus:ring-gray-300; }
+  .btn-ghost     { @apply text-gray-600 hover:bg-gray-100 focus:ring-gray-300; }
+  .btn-danger    { @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500; }
+  .btn-lg        { @apply px-6 py-3 text-base rounded-2xl; }
+  .btn-xl        { @apply px-8 py-4 text-lg rounded-2xl; }
+
+  .input {
+    @apply block w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5
+           text-sm text-gray-900 placeholder-gray-400
+           focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/15
+           disabled:bg-gray-50 disabled:text-gray-500 transition-colors;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Badge base + variants — expanded to avoid @apply on custom classes */
+  .badge,
+  .badge-green,
+  .badge-red,
+  .badge-yellow,
+  .badge-blue,
+  .badge-gray {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-green  { @apply bg-green-100 text-green-700; }
+  .badge-red    { @apply bg-red-100 text-red-700; }
+  .badge-yellow { @apply bg-amber-100 text-amber-700; }
+  .badge-blue   { @apply bg-blue-100 text-blue-700; }
+  .badge-gray   { @apply bg-gray-100 text-gray-600; }
+
+  .dashboard-sidebar {
+    width: var(--sidebar-width);
+    background-color: var(--color-sidebar-bg);
+    border-right: 1px solid var(--color-sidebar-border);
+    transition: width var(--transition-normal);
+  }
+
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+}

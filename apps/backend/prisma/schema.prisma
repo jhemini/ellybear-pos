@@ -1,0 +1,972 @@
+// ─── Prisma Schema ─────────────────────────────────────────────────────────────
+// Ellybear POS — Multi-tenant SaaS POS Platform
+// ───────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum EmployeeRole {
+  OWNER
+  MANAGER
+  CASHIER
+  KITCHEN_STAFF
+  WAITER
+  INVENTORY_MANAGER
+}
+
+enum OrderStatus {
+  PENDING
+  OPEN
+  IN_PROGRESS
+  READY
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+  ONLINE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  MOBILE_PAYMENT
+  LOYALTY_POINTS
+  GIFT_CARD
+  SPLIT
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIAL_REFUND
+}
+
+enum InventoryMovementType {
+  SALE
+  PURCHASE
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  WASTE
+  RETURN
+  OPENING_STOCK
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+}
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum IntegrationType {
+  QUICKBOOKS
+  XERO
+  SHOPIFY
+  MAILCHIMP
+  CUSTOM_WEBHOOK
+}
+
+enum KdsStatus {
+  NEW
+  ACKNOWLEDGED
+  IN_PROGRESS
+  READY
+  DELIVERED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORGANIZATIONS (TENANTS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id               String           @id @default(cuid())
+  name             String
+  slug             String           @unique
+  email            String           @unique
+  phone            String?
+  logoUrl          String?
+  website          String?
+  subscriptionPlan SubscriptionPlan @default(FREE)
+  subscriptionEndsAt DateTime?
+  isActive         Boolean          @default(true)
+  settings         Json             @default("{}")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  stores           Store[]
+  employees        Employee[]
+  customers        Customer[]
+  products         Product[]
+  categories       Category[]
+  suppliers        Supplier[]
+  taxRates         TaxRate[]
+  discounts        Discount[]
+  loyaltyProgram   LoyaltyProgram?
+  integrations     Integration[]
+  webhooks         Webhook[]
+
+  @@index([slug])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORES / LOCATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Store {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  address        String?
+  city           String?
+  state          String?
+  country        String       @default("US")
+  postalCode     String?
+  timezone       String       @default("UTC")
+  phone          String?
+  email          String?
+  currency       String       @default("USD")
+  isActive       Boolean      @default(true)
+  settings       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  storeEmployees StoreEmployee[]
+  inventory      Inventory[]
+  orders         Order[]
+  tables         Table[]
+  registers      Register[]
+  purchaseOrders PurchaseOrder[]
+  inventoryMovements InventoryMovement[]
+  transfers      StockTransfer[]
+
+  @@index([organizationId])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMPLOYEES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Employee {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String?      // links to auth user
+  firstName      String
+  lastName       String
+  email          String
+  phone          String?
+  pin            String?      // 4-6 digit POS PIN (hashed)
+  role           EmployeeRole @default(CASHIER)
+  hourlyWage     Decimal?     @db.Decimal(10, 2)
+  commissionRate Decimal?     @db.Decimal(5, 2)
+  avatarUrl      String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  storeEmployees StoreEmployee[]
+  timeEntries    TimeEntry[]
+  orders         Order[]
+  createdAdjustments InventoryMovement[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([deletedAt])
+}
+
+model StoreEmployee {
+  id         String   @id @default(cuid())
+  storeId    String
+  employeeId String
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  store      Store    @relation(fields: [storeId], references: [id])
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([storeId, employeeId])
+}
+
+model TimeEntry {
+  id         String    @id @default(cuid())
+  employeeId String
+  clockIn    DateTime  @default(now())
+  clockOut   DateTime?
+  breakMinutes Int     @default(0)
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([clockIn])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORIES & TAX
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id             String     @id @default(cuid())
+  organizationId String
+  parentId       String?
+  name           String
+  description    String?
+  color          String?
+  imageUrl       String?
+  sortOrder      Int        @default(0)
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  parent         Category?    @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children       Category[]   @relation("CategoryHierarchy")
+  products       Product[]
+
+  @@index([organizationId])
+  @@index([parentId])
+}
+
+model TaxRate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  rate           Decimal  @db.Decimal(5, 4) // e.g. 0.0875 = 8.75%
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  products       Product[]
+
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Product {
+  id             String    @id @default(cuid())
+  organizationId String
+  categoryId     String?
+  taxRateId      String?
+  name           String
+  description    String?
+  sku            String?
+  barcode        String?
+  price          Decimal   @db.Decimal(10, 2)
+  cost           Decimal?  @db.Decimal(10, 2)
+  imageUrl       String?
+  isComposite    Boolean   @default(false) // has recipe (burger = bun + patty + ...)
+  isVariant      Boolean   @default(false) // has size/color variants
+  trackInventory Boolean   @default(true)
+  isActive       Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  category       Category?       @relation(fields: [categoryId], references: [id])
+  taxRate        TaxRate?        @relation(fields: [taxRateId], references: [id])
+
+  variants       ProductVariant[]
+  modifierGroups ProductModifierGroup[]
+  // Recipe: this product IS MADE FROM these ingredients
+  recipeItems    ProductRecipe[]  @relation("RecipeProduct")
+  // Ingredient: this product IS USED AS ingredient in others
+  usedInRecipes  ProductRecipe[]  @relation("IngredientProduct")
+  inventory      Inventory[]
+  orderItems     OrderItem[]
+
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([barcode])
+  @@index([deletedAt])
+}
+
+model ProductVariant {
+  id         String   @id @default(cuid())
+  productId  String
+  name       String   // e.g. "Large / Red"
+  sku        String?
+  barcode    String?
+  price      Decimal? @db.Decimal(10, 2) // override parent price if set
+  cost       Decimal? @db.Decimal(10, 2)
+  imageUrl   String?
+  attributes Json     @default("{}") // {"size": "L", "color": "Red"}
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventory  Inventory[]
+  orderItems OrderItem[]
+
+  @@index([productId])
+}
+
+// Modifier groups (e.g. "Choose sauce", "Add extras")
+model ProductModifierGroup {
+  id         String             @id @default(cuid())
+  productId  String
+  name       String             // "Choose sauce"
+  required   Boolean            @default(false)
+  minSelect  Int                @default(0)
+  maxSelect  Int                @default(1)
+  sortOrder  Int                @default(0)
+  isActive   Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modifiers  ProductModifier[]
+
+  @@index([productId])
+}
+
+model ProductModifier {
+  id               String               @id @default(cuid())
+  modifierGroupId  String
+  name             String               // "BBQ Sauce"
+  priceAdjustment  Decimal              @db.Decimal(10, 2) @default(0)
+  isDefault        Boolean              @default(false)
+  isActive         Boolean              @default(true)
+  sortOrder        Int                  @default(0)
+  createdAt        DateTime             @default(now())
+
+  modifierGroup    ProductModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  orderItemModifiers OrderItemModifier[]
+
+  @@index([modifierGroupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPOSITE PRODUCTS — RECIPE MAPPING
+// ─────────────────────────────────────────────────────────────────────────────
+// A composite product (burger) is made from ingredient products.
+// When a burger is sold, each ingredient's inventory is decremented by quantity * unit.
+
+model ProductRecipe {
+  id                String   @id @default(cuid())
+  compositeProductId String  // the finished product (burger)
+  ingredientProductId String // raw ingredient (bun, patty, lettuce)
+  quantity          Decimal  @db.Decimal(10, 4) // how much ingredient is used (e.g. 0.1 kg)
+  unit              String   @default("unit")   // unit, kg, g, ml, oz
+  wastagePercent    Decimal  @db.Decimal(5, 2) @default(0) // additional wastage buffer
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  compositeProduct  Product  @relation("RecipeProduct", fields: [compositeProductId], references: [id])
+  ingredientProduct Product  @relation("IngredientProduct", fields: [ingredientProductId], references: [id])
+
+  @@unique([compositeProductId, ingredientProductId])
+  @@index([compositeProductId])
+  @@index([ingredientProductId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVENTORY
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Inventory {
+  id              String    @id @default(cuid())
+  storeId         String
+  productId       String
+  variantId       String?
+  quantity        Decimal   @db.Decimal(10, 4) @default(0)
+  reservedQty     Decimal   @db.Decimal(10, 4) @default(0) // reserved by pending orders
+  lowStockAlert   Decimal?  @db.Decimal(10, 4)
+  reorderPoint    Decimal?  @db.Decimal(10, 4)
+  reorderQty      Decimal?  @db.Decimal(10, 4)
+  location        String?   // shelf/bin location
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  store           Store     @relation(fields: [storeId], references: [id])
+  product         Product   @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([storeId, productId, variantId])
+  @@index([storeId])
+  @@index([productId])
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  storeId         String
+  productId       String
+  variantId       String?
+  employeeId      String?
+  orderId         String?
+  purchaseOrderId String?
+  type            InventoryMovementType
+  quantity        Decimal               @db.Decimal(10, 4) // positive=in, negative=out
+  quantityBefore  Decimal               @db.Decimal(10, 4)
+  quantityAfter   Decimal               @db.Decimal(10, 4)
+  unitCost        Decimal?              @db.Decimal(10, 2)
+  notes           String?
+  reference       String?               // external ref number
+  createdAt       DateTime              @default(now())
+
+  store           Store                 @relation(fields: [storeId], references: [id])
+  employee        Employee?             @relation(fields: [employeeId], references: [id])
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPLIERS & PURCHASE ORDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  address        String?
+  notes          String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  purchaseOrders PurchaseOrder[]
+
+  @@index([organizationId])
+}
+
+model PurchaseOrder {
+  id              String              @id @default(cuid())
+  storeId         String
+  supplierId      String
+  status          PurchaseOrderStatus @default(DRAFT)
+  orderNumber     String              @unique
+  expectedAt      DateTime?
+  receivedAt      DateTime?
+  notes           String?
+  totalAmount     Decimal             @db.Decimal(10, 2) @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  store           Store               @relation(fields: [storeId], references: [id])
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  items           PurchaseOrderItem[]
+
+  @@index([storeId])
+  @@index([supplierId])
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  variantId       String?
+  quantityOrdered Decimal       @db.Decimal(10, 4)
+  quantityReceived Decimal      @db.Decimal(10, 4) @default(0)
+  unitCost        Decimal       @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+}
+
+model StockTransfer {
+  id            String    @id @default(cuid())
+  fromStoreId   String
+  toStoreId     String
+  status        String    @default("PENDING") // PENDING, IN_TRANSIT, COMPLETED
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  fromStore     Store     @relation(fields: [fromStoreId], references: [id])
+  items         StockTransferItem[]
+
+  @@index([fromStoreId])
+  @@index([toStoreId])
+}
+
+model StockTransferItem {
+  id               String        @id @default(cuid())
+  stockTransferId  String
+  productId        String
+  variantId        String?
+  quantity         Decimal       @db.Decimal(10, 4)
+  createdAt        DateTime      @default(now())
+
+  stockTransfer    StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+
+  @@index([stockTransferId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOMERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Customer {
+  id             String    @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String?
+  email          String?
+  phone          String?
+  dateOfBirth    DateTime?
+  notes          String?
+  tags           String[]
+  totalSpent     Decimal   @db.Decimal(10, 2) @default(0)
+  totalOrders    Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  orders         Order[]
+  loyaltyAccount LoyaltyAccount?
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([phone])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOYALTY
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LoyaltyProgram {
+  id                  String    @id @default(cuid())
+  organizationId      String    @unique
+  name                String    @default("Loyalty Program")
+  pointsPerCurrency   Decimal   @db.Decimal(10, 4) @default(1) // points per $1 spent
+  pointsValue         Decimal   @db.Decimal(10, 6) @default(0.01) // $0.01 per point
+  minimumRedeemPoints Int       @default(100)
+  expiryDays          Int?      // null = never expires
+  isActive            Boolean   @default(true)
+  tiers               Json      @default("[]") // tier definitions
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  accounts            LoyaltyAccount[]
+}
+
+model LoyaltyAccount {
+  id               String       @id @default(cuid())
+  customerId       String       @unique
+  loyaltyProgramId String
+  points           Int          @default(0)
+  lifetimePoints   Int          @default(0)
+  tier             LoyaltyTier  @default(BRONZE)
+  expiresAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  customer         Customer     @relation(fields: [customerId], references: [id])
+  loyaltyProgram   LoyaltyProgram @relation(fields: [loyaltyProgramId], references: [id])
+  transactions     LoyaltyTransaction[]
+
+  @@index([loyaltyProgramId])
+}
+
+model LoyaltyTransaction {
+  id               String         @id @default(cuid())
+  loyaltyAccountId String
+  orderId          String?
+  points           Int            // positive=earn, negative=redeem
+  description      String
+  expiresAt        DateTime?
+  createdAt        DateTime       @default(now())
+
+  loyaltyAccount   LoyaltyAccount @relation(fields: [loyaltyAccountId], references: [id])
+
+  @@index([loyaltyAccountId])
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DISCOUNTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Discount {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  code           String?   // promo code
+  type           String    // PERCENTAGE | FIXED_AMOUNT | BUY_X_GET_Y
+  value          Decimal   @db.Decimal(10, 2)
+  minOrderAmount Decimal?  @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int       @default(0)
+  startsAt       DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  orderDiscounts OrderDiscount[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESTAURANT: TABLES & KDS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Table {
+  id        String      @id @default(cuid())
+  storeId   String
+  name      String      // "T-01", "Bar 3"
+  section   String?     // "Main Floor", "Patio"
+  seats     Int         @default(4)
+  status    TableStatus @default(AVAILABLE)
+  posX      Float?      // floor plan X coordinate
+  posY      Float?      // floor plan Y coordinate
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  store     Store       @relation(fields: [storeId], references: [id])
+  orders    Order[]
+
+  @@index([storeId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGISTERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Register {
+  id          String    @id @default(cuid())
+  storeId     String
+  name        String    // "Register 1", "Bar POS"
+  isActive    Boolean   @default(true)
+  openingFloat Decimal? @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store       Store     @relation(fields: [storeId], references: [id])
+  orders      Order[]
+
+  @@index([storeId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id             String      @id @default(cuid())
+  storeId        String
+  registerId     String?
+  tableId        String?
+  customerId     String?
+  employeeId     String?
+  orderNumber    String
+  type           OrderType   @default(DINE_IN)
+  status         OrderStatus @default(OPEN)
+  notes          String?
+  subtotal       Decimal     @db.Decimal(10, 2) @default(0)
+  discountAmount Decimal     @db.Decimal(10, 2) @default(0)
+  taxAmount      Decimal     @db.Decimal(10, 2) @default(0)
+  tipAmount      Decimal     @db.Decimal(10, 2) @default(0)
+  total          Decimal     @db.Decimal(10, 2) @default(0)
+  paidAmount     Decimal     @db.Decimal(10, 2) @default(0)
+  changeAmount   Decimal     @db.Decimal(10, 2) @default(0)
+  receiptEmail   String?
+  syncedAt       DateTime?   // null = created offline, not yet synced
+  isOffline      Boolean     @default(false)
+  offlineId      String?     // local ID used while offline
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  completedAt    DateTime?
+
+  store          Store       @relation(fields: [storeId], references: [id])
+  register       Register?   @relation(fields: [registerId], references: [id])
+  table          Table?      @relation(fields: [tableId], references: [id])
+  customer       Customer?   @relation(fields: [customerId], references: [id])
+  employee       Employee?   @relation(fields: [employeeId], references: [id])
+  items          OrderItem[]
+  payments       Payment[]
+  discounts      OrderDiscount[]
+  kdsTickets     KdsTicket[]
+  refunds        Refund[]
+
+  @@unique([storeId, orderNumber])
+  @@index([storeId])
+  @@index([customerId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([offlineId])
+}
+
+model OrderItem {
+  id             String    @id @default(cuid())
+  orderId        String
+  productId      String
+  variantId      String?
+  name           String    // snapshot at time of sale
+  sku            String?
+  quantity       Decimal   @db.Decimal(10, 4)
+  unitPrice      Decimal   @db.Decimal(10, 2)
+  costPrice      Decimal?  @db.Decimal(10, 2)
+  discountAmount Decimal   @db.Decimal(10, 2) @default(0)
+  taxAmount      Decimal   @db.Decimal(10, 2) @default(0)
+  taxRate        Decimal?  @db.Decimal(5, 4)
+  total          Decimal   @db.Decimal(10, 2)
+  notes          String?
+  isRefunded     Boolean   @default(false)
+  refundedQty    Decimal   @db.Decimal(10, 4) @default(0)
+  createdAt      DateTime  @default(now())
+
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product   @relation(fields: [productId], references: [id])
+  variant        ProductVariant? @relation(fields: [variantId], references: [id])
+  modifiers      OrderItemModifier[]
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model OrderItemModifier {
+  id              String          @id @default(cuid())
+  orderItemId     String
+  modifierId      String
+  name            String          // snapshot
+  priceAdjustment Decimal         @db.Decimal(10, 2)
+  createdAt       DateTime        @default(now())
+
+  orderItem       OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  modifier        ProductModifier @relation(fields: [modifierId], references: [id])
+
+  @@index([orderItemId])
+}
+
+model OrderDiscount {
+  id          String    @id @default(cuid())
+  orderId     String
+  discountId  String?
+  name        String
+  type        String
+  value       Decimal   @db.Decimal(10, 2)
+  amount      Decimal   @db.Decimal(10, 2) // actual money off
+  createdAt   DateTime  @default(now())
+
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  discount    Discount? @relation(fields: [discountId], references: [id])
+
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amount        Decimal       @db.Decimal(10, 2)
+  tipAmount     Decimal       @db.Decimal(10, 2) @default(0)
+  reference     String?       // card auth code, transaction ID
+  gateway       String?       // stripe, square, etc.
+  metadata      Json          @default("{}")
+  processedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order         Order         @relation(fields: [orderId], references: [id])
+  refunds       Refund[]
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model Refund {
+  id          String    @id @default(cuid())
+  orderId     String
+  paymentId   String
+  amount      Decimal   @db.Decimal(10, 2)
+  reason      String?
+  notes       String?
+  processedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  order       Order     @relation(fields: [orderId], references: [id])
+  payment     Payment   @relation(fields: [paymentId], references: [id])
+
+  @@index([orderId])
+  @@index([paymentId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KITCHEN DISPLAY SYSTEM (KDS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model KdsTicket {
+  id         String    @id @default(cuid())
+  orderId    String
+  storeId    String
+  station    String    @default("KITCHEN") // KITCHEN, BAR, EXPO
+  status     KdsStatus @default(NEW)
+  items      Json      // snapshot of items for this station
+  startedAt  DateTime?
+  readyAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  order      Order     @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([storeId, status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTEGRATIONS & WEBHOOKS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Integration {
+  id             String          @id @default(cuid())
+  organizationId String
+  type           IntegrationType
+  name           String
+  credentials    Json            @default("{}") // encrypted at app level
+  settings       Json            @default("{}")
+  isActive       Boolean         @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, type])
+  @@index([organizationId])
+}
+
+model Webhook {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  url            String
+  secret         String
+  events         String[]  // ["order.created", "inventory.low_stock"]
+  isActive       Boolean   @default(true)
+  lastTriggeredAt DateTime?
+  failureCount   Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  deliveries     WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+model WebhookDelivery {
+  id          String    @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     Json
+  statusCode  Int?
+  response    String?
+  success     Boolean   @default(false)
+  attempts    Int       @default(1)
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  webhook     Webhook   @relation(fields: [webhookId], references: [id])
+
+  @@index([webhookId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  employeeId     String?
+  action         String   // "product.created", "order.refunded"
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
